@@ -29,6 +29,14 @@ SRC_URI += "\
     file://0010-Make-Qt5GuiConfigExtras.cmake-find-gl-es-include-dir.patch \
 "
 
+SRC_URI += "\
+    file://0001-Make-QStyle-itemPixmapRect-handle-devicePixelRatio.patch \
+    file://0002-quote-QUuid-values.patch \
+    file://0003-Check-for-integer-overflows-in-places-where-qAllocMo.patch \
+    file://0004-Network-Fix-up-previous-corruption-patch.patch \
+    file://0005-Better-handling-of-invalid-font-tables.patch \
+"
+
 # common for qtbase-native and nativesdk-qtbase
 SRC_URI += " \
     file://0011-Always-build-uic.patch \

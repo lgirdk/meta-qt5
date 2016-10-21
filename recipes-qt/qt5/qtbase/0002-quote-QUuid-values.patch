@@ -1,0 +1,30 @@
+From 34014406baaeac3e9d49d5654ef57ac6540a17a8 Mon Sep 17 00:00:00 2001
+From: Evgeniy Fominov <fm@stilsoft.ru>
+Date: Mon, 16 Feb 2015 14:36:54 +0100
+Subject: [PATCH] quote QUuid values
+
+Task-number: QTBUG-44480
+Change-Id: I125ab913c867758d958a2774ad125533d6a07a83
+Reviewed-by: Evgeniy Fominov <fm@stilsoft.ru>
+Reviewed-by: Mark Brand <mabrand@mabrand.nl>
+---
+ src/sql/drivers/psql/qsql_psql.cpp | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/src/sql/drivers/psql/qsql_psql.cpp b/src/sql/drivers/psql/qsql_psql.cpp
+index 4268ea0..32f6e31 100644
+--- a/src/sql/drivers/psql/qsql_psql.cpp
++++ b/src/sql/drivers/psql/qsql_psql.cpp
+@@ -1320,6 +1320,9 @@ QString QPSQLDriver::formatValue(const QSqlField &field, bool trimStrings) const
+             }
+             break;
+         }
++        case QVariant::Uuid:
++            r = QLatin1Char('\'') + field.value().toString() + QLatin1Char('\'');
++            break;
+         default:
+             r = QSqlDriver::formatValue(field, trimStrings);
+             break;
+-- 
+1.9.1
+

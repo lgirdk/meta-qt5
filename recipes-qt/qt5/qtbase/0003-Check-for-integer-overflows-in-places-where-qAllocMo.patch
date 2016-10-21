@@ -1,0 +1,138 @@
+From d82d5b1c43b270ef6f4f0d90ce5d7d96ea0b7a97 Mon Sep 17 00:00:00 2001
+From: Mikhail Lappo <mikhail.lappo@lge.com>
+Date: Wed, 3 Jun 2015 10:09:42 +0300
+Subject: [PATCH] Check for integer overflows in places where qAllocMore is
+ used
+
+Task-number: QTBUG-41230
+Change-Id: Ic2167364e326092482657f2d2b4ab6ad3e5af631
+(partially cherry-picked from 880986be2357a1f80827d038d770dc2f80300201)
+Reviewed-by: Thiago Macieira <thiago.macieira@intel.com>
+---
+ src/corelib/tools/qarraydata.cpp | 16 ++++++++++++++--
+ src/corelib/tools/qbytearray.cpp |  7 +++++--
+ src/corelib/tools/qlist.cpp      |  2 ++
+ src/corelib/tools/qstring.cpp    |  5 ++++-
+ src/corelib/tools/qtools_p.h     |  6 ++++++
+ src/gui/text/qfragmentmap_p.h    |  2 ++
+ 6 files changed, 33 insertions(+), 5 deletions(-)
+
+diff --git a/src/corelib/tools/qarraydata.cpp b/src/corelib/tools/qarraydata.cpp
+index 98c484c..d060ff8 100644
+--- a/src/corelib/tools/qarraydata.cpp
++++ b/src/corelib/tools/qarraydata.cpp
+@@ -85,8 +85,20 @@ QArrayData *QArrayData::allocate(size_t objectSize, size_t alignment,
+         headerSize += (alignment - Q_ALIGNOF(QArrayData));
+ 
+     // Allocate additional space if array is growing
+-    if (options & Grow)
+-        capacity = qAllocMore(int(objectSize * capacity), int(headerSize)) / int(objectSize);
++    if (options & Grow) {
++
++        // Guard against integer overflow when multiplying.
++        if (capacity > std::numeric_limits<size_t>::max() / objectSize)
++            return 0;
++
++        size_t alloc = objectSize * capacity;
++
++        // Make sure qAllocMore won't overflow.
++        if (headerSize > size_t(MaxAllocSize) || alloc > size_t(MaxAllocSize) - headerSize)
++            return 0;
++
++        capacity = qAllocMore(int(alloc), int(headerSize)) / int(objectSize);
++    }
+ 
+     size_t allocSize = headerSize + objectSize * capacity;
+ 
+diff --git a/src/corelib/tools/qbytearray.cpp b/src/corelib/tools/qbytearray.cpp
+index 5ec8c31..1e87f7b 100644
+--- a/src/corelib/tools/qbytearray.cpp
++++ b/src/corelib/tools/qbytearray.cpp
+@@ -64,7 +64,7 @@ int qFindByteArray(
+ int qAllocMore(int alloc, int extra) Q_DECL_NOTHROW
+ {
+     Q_ASSERT(alloc >= 0 && extra >= 0);
+-    Q_ASSERT_X(uint(alloc) < QByteArray::MaxSize, "qAllocMore", "Requested size is too large!");
++    Q_ASSERT_X(alloc <= MaxAllocSize - extra, "qAllocMore", "Requested size is too large!");
+ 
+     unsigned nalloc = qNextPowerOfTwo(alloc + extra);
+ 
+@@ -1495,8 +1495,11 @@ void QByteArray::reallocData(uint alloc, Data::AllocationOptions options)
+             Data::deallocate(d);
+         d = x;
+     } else {
+-        if (options & Data::Grow)
++        if (options & Data::Grow) {
++            if (alloc > uint(MaxAllocSize) - uint(sizeof(Data)))
++                qBadAlloc();
+             alloc = qAllocMore(alloc, sizeof(Data));
++        }
+         Data *x = static_cast<Data *>(::realloc(d, sizeof(Data) + alloc));
+         Q_CHECK_PTR(x);
+         x->alloc = alloc;
+diff --git a/src/corelib/tools/qlist.cpp b/src/corelib/tools/qlist.cpp
+index fe5e0f3..b91fd38 100644
+--- a/src/corelib/tools/qlist.cpp
++++ b/src/corelib/tools/qlist.cpp
+@@ -55,6 +55,8 @@ const QListData::Data QListData::shared_null = { Q_REFCOUNT_INITIALIZE_STATIC, 0
+ 
+ static int grow(int size)
+ {
++    if (size_t(size) > (MaxAllocSize - QListData::DataHeaderSize) / sizeof(void *))
++        qBadAlloc();
+     // dear compiler: don't optimize me out.
+     volatile int x = qAllocMore(size * sizeof(void *), QListData::DataHeaderSize) / sizeof(void *);
+     return x;
+diff --git a/src/corelib/tools/qstring.cpp b/src/corelib/tools/qstring.cpp
+index 189caf8..96f3c41 100644
+--- a/src/corelib/tools/qstring.cpp
++++ b/src/corelib/tools/qstring.cpp
+@@ -1656,8 +1656,11 @@ void QString::resize(int size)
+ 
+ void QString::reallocData(uint alloc, bool grow)
+ {
+-    if (grow)
++    if (grow) {
++        if (alloc > (uint(MaxAllocSize) - sizeof(Data)) / sizeof(QChar))
++            qBadAlloc();
+         alloc = qAllocMore(alloc * sizeof(QChar), sizeof(Data)) / sizeof(QChar);
++    }
+ 
+     if (d->ref.isShared() || IS_RAW_DATA(d)) {
+         Data::AllocationOptions allocOptions(d->capacityReserved ? Data::CapacityReserved : 0);
+diff --git a/src/corelib/tools/qtools_p.h b/src/corelib/tools/qtools_p.h
+index 3876d38..1e72db1 100644
+--- a/src/corelib/tools/qtools_p.h
++++ b/src/corelib/tools/qtools_p.h
+@@ -46,9 +46,15 @@
+ //
+ 
+ #include "QtCore/qglobal.h"
++#include <limits>
+ 
+ QT_BEGIN_NAMESPACE
+ 
++// We typically need an extra bit for qNextPowerOfTwo when determining the next allocation size.
++enum {
++    MaxAllocSize = (1 << (std::numeric_limits<int>::digits - 1)) - 1
++};
++
+ // implemented in qbytearray.cpp
+ int Q_CORE_EXPORT qAllocMore(int alloc, int extra) Q_DECL_NOTHROW;
+ 
+diff --git a/src/gui/text/qfragmentmap_p.h b/src/gui/text/qfragmentmap_p.h
+index 012d3c2..a19e3d9 100644
+--- a/src/gui/text/qfragmentmap_p.h
++++ b/src/gui/text/qfragmentmap_p.h
+@@ -249,6 +249,8 @@ uint QFragmentMapData<Fragment>::createFragment()
+     uint freePos = head->freelist;
+     if (freePos == head->allocated) {
+         // need to create some free space
++        if (freePos >= uint(MaxAllocSize) / fragmentSize)
++            qBadAlloc();
+         uint needed = qAllocMore((freePos+1)*fragmentSize, 0);
+         Q_ASSERT(needed/fragmentSize > head->allocated);
+         Fragment *newFragments = (Fragment *)realloc(fragments, needed);
+-- 
+1.9.1
+

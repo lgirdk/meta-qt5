@@ -95,9 +95,9 @@ RDEPENDS_${PN} += " \
     qttools-plugins \
     qttools-staticdev \
     qttools-tools \
-    ${@base_contains('DISTRO_FEATURES', 'wayland', '${USE_WAYLAND}', '', d)} \
-    ${@base_contains('BBFILE_COLLECTIONS', 'ruby-layer', '${USE_RUBY}', '', d)} \
-    ${@base_contains('DISTRO_FEATURES', 'x11', '${USE_X11}', '', d)} \
+    ${@bb.utils.contains('DISTRO_FEATURES', 'wayland', '${USE_WAYLAND}', '', d)} \
+    ${@bb.utils.contains('BBFILE_COLLECTIONS', 'ruby-layer', '${USE_RUBY}', '', d)} \
+    ${@bb.utils.contains('DISTRO_FEATURES', 'x11', '${USE_X11}', '', d)} \
     qtwebsockets-dev \
     qtwebsockets-mkspecs \
     qtwebsockets-qmlplugins \
